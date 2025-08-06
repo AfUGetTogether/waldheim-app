@@ -8,7 +8,7 @@ export default function AdminAusfluegePage() {
   const [user, setUser] = useState(null);
   const [verbindungen, setVerbindungen] = useState([]);
   const [linie, setLinie] = useState('');
-  const [abfahrt, setAbfahrtszeit] = useState('');
+  const [abfahrt, setAbfahrt] = useState('');
   const [haltestelle, setHaltestelle] = useState('');
   const [limit, setLimit] = useState(1);
   const [loading, setLoading] = useState(false);
@@ -46,7 +46,7 @@ export default function AdminAusfluegePage() {
     const { data } = await supabase.from('verbindungen').select('*');
     setVerbindungen(data || []);
     setLinie('');
-    setAbfahrtszeit('');
+    setAbfahrt('');
     setHaltestelle('');
     setLimit(1);
     }
@@ -67,7 +67,7 @@ export default function AdminAusfluegePage() {
         <h2 className="text-lg font-semibold mb-4">Neue Verbindung hinzufügen</h2>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <input type="text" placeholder="Linie" className="border rounded px-2 py-1" value={linie} onChange={e => setLinie(e.target.value)} />
-          <input type="time" className="border rounded px-2 py-1" value={abfahrt} onChange={e => setAbfahrtszeit(e.target.value)} />
+          <input type="time" className="border rounded px-2 py-1" value={abfahrt} onChange={e => setAbfahrt(e.target.value)} />
           <input type="text" placeholder="Haltestelle" className="border rounded px-2 py-1" value={haltestelle} onChange={e => setHaltestelle(e.target.value)} />
           <input type="number" placeholder="Gruppenlimit" className="border rounded px-2 py-1" value={limit} min={1} onChange={e => setLimit(Number(e.target.value))} />
         </div>
