@@ -67,9 +67,9 @@ export default function HomePage() {
           className="block bg-white p-6 rounded-2xl shadow hover:shadow-lg hover:bg-emerald-50 transition"
         >
           <h2 className="text-xl font-semibold mb-2">📦 Materialbestellung</h2>
-          <p className="text-gray-600">Weiterleitung zu kruschd.de</p>
+          <p className="text-gray-600">Weiterleitung zur Seite für Materialbestellungen</p>
         </a>
-        
+
       </div>
     </main>
   );
