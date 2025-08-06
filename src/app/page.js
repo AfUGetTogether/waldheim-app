@@ -70,6 +70,11 @@ export default function HomePage() {
           <p className="text-gray-600">Weiterleitung zur Seite für Materialbestellungen</p>
         </a>
 
+        <Link href="/ausfluege" className="block bg-white p-6 rounded-2xl shadow hover:shadow-lg hover:bg-emerald-50 transition">
+          <h2 className="text-xl font-semibold mb-2">🌳 Ausflüge</h2>
+          <p className="text-gray-600">Ziele & Verbindungen der Gruppen</p>
+        </Link>
+
       </div>
     </main>
   );
