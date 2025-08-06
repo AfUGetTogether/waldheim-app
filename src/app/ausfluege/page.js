@@ -35,10 +35,14 @@ export default function AusfluegePage() {
 
     setLoading(true);
 
+    const verbindung_id = verbindungId.startsWith('custom:') ? null : verbindungId;
+    const verbindung_name = verbindungId.startsWith('custom:') ? verbindungId.replace('custom:', '') : null;
+
     const { error } = await supabase.from('ausfluege').upsert({
       gruppe_email: user.email,
       ziel,
-      verbindung_id: verbindungId || null,
+      verbindung_id,
+      verbindung_name,
       updated_at: new Date()
     }, { onConflict: ['gruppe_email'] });
 
@@ -53,6 +57,8 @@ export default function AusfluegePage() {
     return ausfluege.filter(a => a.verbindung_id === verbindung_id).length;
   };
 
+  const customOptions = ["Zu Fuß", "Mit dem Fahrrad", "Andere"];
+
   return (
     <main className="p-4 max-w-4xl mx-auto">
       <h1 className="text-2xl font-bold mb-6">🌳 Ausflüge</h1>
@@ -62,11 +68,15 @@ export default function AusfluegePage() {
           <div key={idx} className="p-4 border rounded shadow-sm bg-white">
             <div><strong>Gruppe:</strong> {eintrag.gruppe_email.split('@')[0]}</div>
             <div><strong>Ziel:</strong> {eintrag.ziel}</div>
-            {eintrag.verbindungen && (
+            {eintrag.verbindungen ? (
               <div>
                 <strong>Verbindung:</strong> {eintrag.verbindungen.linie}, {eintrag.verbindungen.abfahrt} ab {eintrag.verbindungen.haltestelle}
               </div>
-            )}
+            ) : eintrag.verbindung_name ? (
+              <div>
+                <strong>Verbindung:</strong> {eintrag.verbindung_name}
+              </div>
+            ) : null}
           </div>
         ))}
       </div>
@@ -96,6 +106,9 @@ export default function AusfluegePage() {
                 </option>
               );
             })}
+            {customOptions.map((opt, i) => (
+              <option key={`custom-${i}`} value={`custom:${opt}`}>{opt}</option>
+            ))}
           </select>
           <button
             onClick={handleSubmit}
