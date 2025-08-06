@@ -101,6 +101,7 @@ export default function AbwesenheitenPage() {
 
   const getGroupNameFromEmail = (email) => {
     if (email === 'wtv@wh.de') return 'WTV';
+    if (email === 'rookies@wh.de') return 'Rookies';
     const match = email.match(/^(\d+)@wh\.de$/);
     if (match) {
       return `Gruppe ${match[1]}`;

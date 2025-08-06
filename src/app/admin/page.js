@@ -90,6 +90,11 @@ export default function AdminDashboard() {
           <h2 className="text-xl font-semibold mb-2">🍽️ Mittagessen</h2>
           <p className="text-gray-600">Tagesgerichte einpflegen</p>
         </Link>
+
+        <Link href="/admin/limit" className="block bg-white p-6 rounded-2xl shadow hover:shadow-lg hover:bg-emerald-50 transition">
+          <h2 className="text-xl font-semibold mb-2">🔧 Buchungslimit</h2>
+          <p className="text-gray-600">Wöchentliche Buchungsanzahl pro Gruppe festlegen</p>
+        </Link>
       </div>
 
       <div className="bg-red-50 border border-red-300 p-6 rounded-lg">

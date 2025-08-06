@@ -30,6 +30,7 @@ export function UserMenu() {
   const emailToGroupName = (email) => {
     if (email === 'admin@wh.de') return 'Admin';
     if (email === 'wtv@wh.de') return 'WTV';
+    if (email === 'rookies@wh.de') return 'Rookies';
     const match = email.match(/^(\d+)@wh\.de$/);
     if (match) {
       return `Gruppe ${match[1]}`;
