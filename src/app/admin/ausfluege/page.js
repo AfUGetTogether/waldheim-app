@@ -8,7 +8,7 @@ export default function AdminAusfluegePage() {
   const [user, setUser] = useState(null);
   const [verbindungen, setVerbindungen] = useState([]);
   const [linie, setLinie] = useState('');
-  const [abfahrtszeit, setAbfahrtszeit] = useState('');
+  const [abfahrt, setAbfahrtszeit] = useState('');
   const [haltestelle, setHaltestelle] = useState('');
   const [limit, setLimit] = useState(1);
   const [loading, setLoading] = useState(false);
@@ -34,7 +34,7 @@ export default function AdminAusfluegePage() {
     const { error } = await supabase.from('verbindungen').insert([
     {
         linie,
-        abfahrtszeit,
+        abfahrt,
         haltestelle,
         limit
     }
@@ -67,7 +67,7 @@ export default function AdminAusfluegePage() {
         <h2 className="text-lg font-semibold mb-4">Neue Verbindung hinzufügen</h2>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <input type="text" placeholder="Linie" className="border rounded px-2 py-1" value={linie} onChange={e => setLinie(e.target.value)} />
-          <input type="time" className="border rounded px-2 py-1" value={abfahrtszeit} onChange={e => setAbfahrtszeit(e.target.value)} />
+          <input type="time" className="border rounded px-2 py-1" value={abfahrt} onChange={e => setAbfahrtszeit(e.target.value)} />
           <input type="text" placeholder="Haltestelle" className="border rounded px-2 py-1" value={haltestelle} onChange={e => setHaltestelle(e.target.value)} />
           <input type="number" placeholder="Gruppenlimit" className="border rounded px-2 py-1" value={limit} min={1} onChange={e => setLimit(Number(e.target.value))} />
         </div>
@@ -82,7 +82,7 @@ export default function AdminAusfluegePage() {
           {verbindungen.map((v) => (
             <li key={v.id} className="flex justify-between items-center border-b py-2">
               <div>
-                <span className="font-medium">{v.linie}</span> – {v.abfahrtszeit} ab {v.haltestelle} (Limit: {v.limit})
+                <span className="font-medium">{v.linie}</span> – {v.abfahrt} ab {v.haltestelle} (Limit: {v.limit})
               </div>
               <button onClick={() => deleteVerbindung(v.id)} className="text-red-600 hover:underline">Löschen</button>
             </li>
