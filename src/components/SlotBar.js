@@ -70,15 +70,13 @@ export function SlotBar({ zeitfenster, buchungen, user, day, remainingBookings, 
     setLoading(false);
   };
 
-  const handleCancel = async () => {
-    if (!myBooking) return;
-
+  const handleCancel = async (bookingId) => {
     setLoading(true);
 
     const { error } = await supabase
       .from('buchungen')
       .update({ status: 'storniert', deleted_at: new Date() })
-      .eq('id', myBooking.id);
+      .eq('id', bookingId);
 
     if (error) {
       setMessage('Fehler beim Stornieren');
@@ -90,10 +88,12 @@ export function SlotBar({ zeitfenster, buchungen, user, day, remainingBookings, 
     setLoading(false);
   };
 
+  const isAdmin = user?.email === 'admin@wh.de';
+
   return (
     <div className="relative bg-gray-100 rounded p-3 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 text-sm">
       <div className="flex items-center gap-2">
-        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: myBooking || otherBooking ? '#dc2626' : '#16a34a' }} />
+        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: bookingsToday.length > 0 ? '#dc2626' : '#16a34a' }} />
         <div className="font-semibold">
           {format(new Date(`1970-01-01T${zeitfenster.von}`), 'HH:mm')} – {format(new Date(`1970-01-01T${zeitfenster.bis}`), 'HH:mm')}
         </div>
@@ -103,18 +103,28 @@ export function SlotBar({ zeitfenster, buchungen, user, day, remainingBookings, 
         {user ? (
           <>
             {myBooking ? (
-              <button onClick={handleCancel} disabled={loading} className="text-red-600 hover:underline">
+              <button onClick={() => handleCancel(myBooking.id)} disabled={loading} className="text-red-600 hover:underline">
                 Stornieren
               </button>
             ) : otherBooking ? (
-              <button
-                onClick={() => setShowMembers(!showMembers)}
-                className="text-emerald-700 hover:underline"
-              >
-                {otherBooking.user_email === 'wtv@wh.de'
-                  ? 'WTV'
-                  : `Gruppe ${otherBooking.user_email.split('@')[0]}`}
-              </button>
+              <>
+                <button
+                  onClick={() => setShowMembers(!showMembers)}
+                  className="text-emerald-700 hover:underline mr-2"
+                >
+                  {otherBooking.user_email === 'wtv@wh.de'
+                    ? 'WTV'
+                    : `Gruppe ${otherBooking.user_email.split('@')[0]}`}
+                </button>
+                {isAdmin && (
+                  <button
+                    onClick={() => handleCancel(otherBooking.id)}
+                    className="text-red-600 hover:underline"
+                  >
+                    Als Admin stornieren
+                  </button>
+                )}
+              </>
             ) : (
               <button onClick={handleBooking} disabled={loading || remainingBookings <= 0} className="text-emerald-600 hover:underline">
                 Buchen
