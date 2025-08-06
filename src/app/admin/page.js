@@ -91,6 +91,11 @@ export default function AdminDashboard() {
           <p className="text-gray-600">Tagesgerichte einpflegen</p>
         </Link>
 
+        <Link href="/admin/ausfluege" className="block bg-white p-6 rounded-2xl shadow hover:shadow-lg hover:bg-emerald-50 transition">
+          <h2 className="text-xl font-semibold mb-2">🚌 Ausflugsverbindungen</h2>
+          <p className="text-gray-600">Verbindungen für Ausflüge verwalten</p>
+        </Link>
+
         <Link href="/admin/limit" className="block bg-white p-6 rounded-2xl shadow hover:shadow-lg hover:bg-emerald-50 transition">
           <h2 className="text-xl font-semibold mb-2">🔧 Buchungslimit</h2>
           <p className="text-gray-600">Wöchentliche Buchungsanzahl pro Gruppe festlegen</p>
