@@ -31,19 +31,24 @@ export default function AdminAusfluegePage() {
 
   const addVerbindung = async () => {
     setLoading(true);
-    const { error } = await supabase.from('verbindungen').insert({
-      linie,
-      abfahrtszeit,
-      haltestelle,
-      limit
-    });
-    if (!error) {
-      const { data } = await supabase.from('verbindungen').select('*');
-      setVerbindungen(data || []);
-      setLinie('');
-      setAbfahrtszeit('');
-      setHaltestelle('');
-      setLimit(1);
+    const { error } = await supabase.from('verbindungen').insert([
+    {
+        linie,
+        abfahrtszeit,
+        haltestelle,
+        limit
+    }
+    ]);
+
+    if (error) {
+    alert('Fehler beim Hinzufügen: ' + error.message);
+    } else {
+    const { data } = await supabase.from('verbindungen').select('*');
+    setVerbindungen(data || []);
+    setLinie('');
+    setAbfahrtszeit('');
+    setHaltestelle('');
+    setLimit(1);
     }
     setLoading(false);
   };
