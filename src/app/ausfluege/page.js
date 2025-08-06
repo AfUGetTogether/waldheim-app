@@ -39,16 +39,19 @@ export default function AusfluegePage() {
     const verbindung_name = verbindungId.startsWith('custom:') ? verbindungId.replace('custom:', '') : null;
 
     const { error } = await supabase.from('ausfluege').upsert({
-      gruppe_email: user.email,
-      ziel,
-      verbindung_id,
-      verbindung_name,
-      updated_at: new Date()
-    }, { onConflict: ['gruppe_email'] });
+        gruppe_email: user.email,
+        ziel,
+        verbindung_id,
+        verbindung_name,
+        updated_at: new Date()
+        }, { onConflict: ['gruppe_email'] });
 
-    if (!error) {
-      window.location.reload();
-    }
+        if (error) {
+        console.error("Speicherfehler:", error.message);
+        alert("Fehler beim Speichern: " + error.message);
+        } else {
+        window.location.reload();
+        }
 
     setLoading(false);
   };
