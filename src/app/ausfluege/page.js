@@ -15,6 +15,7 @@ export default function AusfluegePage() {
   const [ziel, setZiel] = useState('');
   const [verbindungId, setVerbindungId] = useState('');
   const [bearbeiten, setBearbeiten] = useState(false);
+  const [bearbeiteId, setBearbeiteId] = useState(null);
 
   useEffect(() => {
     const fetchInitialData = async () => {
@@ -35,16 +36,16 @@ export default function AusfluegePage() {
   }, []);
 
   useEffect(() => {
-    if (user) {
-      const eigenerEintrag = ausfluege.find(a => a.gruppe_email === user.email);
-      if (eigenerEintrag) {
-        setZiel(eigenerEintrag.ziel || '');
+    if (user && bearbeiten && bearbeiteId) {
+      const eintrag = ausfluege.find(a => a.id === bearbeiteId);
+      if (eintrag) {
+        setZiel(eintrag.ziel || '');
         setVerbindungId(
-          eigenerEintrag.verbindung_id || (eigenerEintrag.verbindung_name ? `custom:${eigenerEintrag.verbindung_name}` : '')
+          eintrag.verbindung_id || (eintrag.verbindung_name ? `custom:${eintrag.verbindung_name}` : '')
         );
       }
     }
-  }, [user, ausfluege]);
+  }, [user, bearbeiten, bearbeiteId, ausfluege]);
 
   const handleSubmit = async () => {
     if (!ziel) return;
@@ -53,8 +54,11 @@ export default function AusfluegePage() {
     const verbindung_id = verbindungId.startsWith('custom:') ? null : verbindungId;
     const verbindung_name = verbindungId.startsWith('custom:') ? verbindungId.replace('custom:', '') : null;
 
+    const eintragEmail = isAdmin && bearbeiteId ? ausfluege.find(a => a.id === bearbeiteId)?.gruppe_email : user.email;
+
     const { error } = await supabase.from('ausfluege').upsert({
-      gruppe_email: user.email,
+      id: bearbeiteId || undefined,
+      gruppe_email: eintragEmail,
       ziel,
       verbindung_id,
       verbindung_name,
@@ -64,6 +68,7 @@ export default function AusfluegePage() {
     if (!error) {
       setMessage('✅ Ausflug gespeichert!');
       setBearbeiten(false);
+      setBearbeiteId(null);
       const { data: neue } = await supabase
         .from('ausfluege')
         .select('*, verbindungen(*)')
@@ -77,12 +82,27 @@ export default function AusfluegePage() {
     setTimeout(() => setMessage(null), 3000);
   };
 
+  const handleDelete = async (id) => {
+    const { error } = await supabase.from('ausfluege').delete().eq('id', id);
+    if (!error) {
+      setMessage('🗑️ Ausflug gelöscht');
+      const { data: neue } = await supabase
+        .from('ausfluege')
+        .select('*, verbindungen(*)')
+        .order('updated_at', { ascending: false });
+      setAusfluege(neue || []);
+    } else {
+      setMessage('❌ Fehler beim Löschen');
+    }
+    setTimeout(() => setMessage(null), 3000);
+  };
+
   const getAnzahlGruppen = (verbindung_id) => {
     return ausfluege.filter(a => a.verbindung_id === verbindung_id).length;
   };
 
   const customOptions = ["Zu Fuß", "Mit dem Fahrrad", "Andere"];
-  const eigenerEintrag = user ? ausfluege.find(a => a.gruppe_email === user.email) : null;
+  const isAdmin = user?.email === 'admin@wh.de';
 
   return (
     <main className="p-4 max-w-4xl mx-auto">
@@ -102,13 +122,24 @@ export default function AusfluegePage() {
                 <strong>Verbindung:</strong> {eintrag.verbindung_name}
               </div>
             ) : null}
-            {user?.email === eintrag.gruppe_email && !bearbeiten && (
-              <button
-                className="mt-2 text-emerald-600 hover:underline text-sm"
-                onClick={() => setBearbeiten(true)}
-              >
-                Bearbeiten
-              </button>
+            {(user?.email === eintrag.gruppe_email || isAdmin) && (
+              <div className="flex gap-3 mt-2">
+                <button
+                  className="text-emerald-600 hover:underline text-sm"
+                  onClick={() => {
+                    setBearbeiten(true);
+                    setBearbeiteId(eintrag.id);
+                  }}
+                >
+                  Bearbeiten
+                </button>
+                <button
+                  onClick={() => handleDelete(eintrag.id)}
+                  className="text-red-600 hover:underline text-sm"
+                >
+                  Löschen
+                </button>
+              </div>
             )}
           </div>
         ))}
@@ -152,7 +183,10 @@ export default function AusfluegePage() {
               Speichern
             </button>
             <button
-              onClick={() => setBearbeiten(false)}
+              onClick={() => {
+                setBearbeiten(false);
+                setBearbeiteId(null);
+              }}
               className="text-gray-600 hover:underline"
             >
               Abbrechen
