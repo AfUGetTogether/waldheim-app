@@ -54,33 +54,35 @@ export default function AusfluegePage() {
     const verbindung_id = verbindungId.startsWith('custom:') ? null : verbindungId;
     const verbindung_name = verbindungId.startsWith('custom:') ? verbindungId.replace('custom:', '') : null;
 
-    const eintragEmail = isAdmin && bearbeiteId ? ausfluege.find(a => a.id === bearbeiteId)?.gruppe_email : user.email;
+    const eintragEmail = isAdmin && bearbeiteId
+        ? ausfluege.find(a => a.id === bearbeiteId)?.gruppe_email
+        : user.email;
 
     const { error } = await supabase.from('ausfluege').upsert({
-      id: bearbeiteId || undefined,
-      gruppe_email: eintragEmail,
-      ziel,
-      verbindung_id,
-      verbindung_name,
-      updated_at: new Date()
-    }, { onConflict: ['gruppe_email'] });
+        id: bearbeiteId || undefined,
+        gruppe_email: eintragEmail,
+        ziel,
+        verbindung_id,
+        verbindung_name,
+        updated_at: new Date()
+    }, { onConflict: ['id'] });
 
     if (!error) {
-      setMessage('✅ Ausflug gespeichert!');
-      setBearbeiten(false);
-      setBearbeiteId(null);
-      const { data: neue } = await supabase
+        setMessage('✅ Ausflug gespeichert!');
+        setBearbeiten(false);
+        setBearbeiteId(null);
+        const { data: neue } = await supabase
         .from('ausfluege')
         .select('*, verbindungen(*)')
         .order('updated_at', { ascending: false });
-      setAusfluege(neue || []);
+        setAusfluege(neue || []);
     } else {
-      setMessage('❌ Fehler beim Speichern');
+        setMessage('❌ Fehler beim Speichern');
     }
 
     setLoading(false);
     setTimeout(() => setMessage(null), 3000);
-  };
+    };
 
   const handleDelete = async (id) => {
     const { error } = await supabase.from('ausfluege').delete().eq('id', id);
