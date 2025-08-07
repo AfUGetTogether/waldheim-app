@@ -23,6 +23,16 @@ export default function AusfluegePage() {
         .order('updated_at', { ascending: false });
       setAusfluege(ausfluegeData || []);
 
+      const eigenerEintrag = ausfluegeData?.find(e => e.gruppe_email === sessionData?.session?.user?.email);
+        if (eigenerEintrag) {
+        setZiel(eigenerEintrag.ziel || '');
+        setVerbindungId(
+            eigenerEintrag.verbindung_id || 
+            (eigenerEintrag.verbindung_name ? `custom:${eigenerEintrag.verbindung_name}` : '')
+        );
+        }
+
+
       const { data: verbindungenData } = await supabase.from('verbindungen').select('*');
       setVerbindungen(verbindungenData || []);
     };
@@ -68,10 +78,10 @@ export default function AusfluegePage() {
 
       <div className="mb-8 space-y-4">
         {ausfluege.map((eintrag, idx) => {
-            const isOwn = user && user.email === eintrag.gruppe_email;
+            const isOwn = user?.email === eintrag.gruppe_email;
 
             return (
-            <div key={idx} className="p-4 border rounded shadow-sm bg-white">
+            <div key={idx} className="p-4 border rounded shadow-sm bg-white space-y-2">
                 <div><strong>Gruppe:</strong> {eintrag.gruppe_email.split('@')[0]}</div>
 
                 {isOwn ? (
@@ -81,12 +91,12 @@ export default function AusfluegePage() {
                     value={ziel}
                     placeholder="Ausflugsziel"
                     onChange={(e) => setZiel(e.target.value)}
-                    className="w-full p-2 border rounded mt-2"
+                    className="w-full p-2 border rounded"
                     />
                     <select
                     value={verbindungId}
                     onChange={(e) => setVerbindungId(e.target.value)}
-                    className="w-full p-2 border rounded mt-2"
+                    className="w-full p-2 border rounded"
                     >
                     <option value="">– Verbindung wählen –</option>
                     {verbindungen.map((v) => {
@@ -105,7 +115,7 @@ export default function AusfluegePage() {
                     <button
                     onClick={handleSubmit}
                     disabled={loading}
-                    className="mt-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-4 rounded"
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-4 rounded"
                     >
                     Speichern
                     </button>
@@ -128,6 +138,7 @@ export default function AusfluegePage() {
             );
         })}
         </div>
+
 
 
       {user && (
