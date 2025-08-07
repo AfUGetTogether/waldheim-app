@@ -67,22 +67,68 @@ export default function AusfluegePage() {
       <h1 className="text-2xl font-bold mb-6">🌳 Ausflüge</h1>
 
       <div className="mb-8 space-y-4">
-        {ausfluege.map((eintrag, idx) => (
-          <div key={idx} className="p-4 border rounded shadow-sm bg-white">
-            <div><strong>Gruppe:</strong> {eintrag.gruppe_email.split('@')[0]}</div>
-            <div><strong>Ziel:</strong> {eintrag.ziel}</div>
-            {eintrag.verbindungen ? (
-              <div>
-                <strong>Verbindung:</strong> {eintrag.verbindungen.linie}, {eintrag.verbindungen.abfahrt} ab {eintrag.verbindungen.haltestelle}
-              </div>
-            ) : eintrag.verbindung_name ? (
-              <div>
-                <strong>Verbindung:</strong> {eintrag.verbindung_name}
-              </div>
-            ) : null}
-          </div>
-        ))}
-      </div>
+        {ausfluege.map((eintrag, idx) => {
+            const isOwn = user && user.email === eintrag.gruppe_email;
+
+            return (
+            <div key={idx} className="p-4 border rounded shadow-sm bg-white">
+                <div><strong>Gruppe:</strong> {eintrag.gruppe_email.split('@')[0]}</div>
+
+                {isOwn ? (
+                <>
+                    <input
+                    type="text"
+                    value={ziel}
+                    placeholder="Ausflugsziel"
+                    onChange={(e) => setZiel(e.target.value)}
+                    className="w-full p-2 border rounded mt-2"
+                    />
+                    <select
+                    value={verbindungId}
+                    onChange={(e) => setVerbindungId(e.target.value)}
+                    className="w-full p-2 border rounded mt-2"
+                    >
+                    <option value="">– Verbindung wählen –</option>
+                    {verbindungen.map((v) => {
+                        const benutzt = getAnzahlGruppen(v.id);
+                        const voll = benutzt >= v.limit;
+                        return (
+                        <option key={v.id} value={v.id} disabled={voll}>
+                            {v.linie} – {v.abfahrt} ab {v.haltestelle} ({benutzt}/{v.limit})
+                        </option>
+                        );
+                    })}
+                    {customOptions.map((opt, i) => (
+                        <option key={`custom-${i}`} value={`custom:${opt}`}>{opt}</option>
+                    ))}
+                    </select>
+                    <button
+                    onClick={handleSubmit}
+                    disabled={loading}
+                    className="mt-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-4 rounded"
+                    >
+                    Speichern
+                    </button>
+                </>
+                ) : (
+                <>
+                    <div><strong>Ziel:</strong> {eintrag.ziel}</div>
+                    {eintrag.verbindungen ? (
+                    <div>
+                        <strong>Verbindung:</strong> {eintrag.verbindungen.linie}, {eintrag.verbindungen.abfahrt} ab {eintrag.verbindungen.haltestelle}
+                    </div>
+                    ) : eintrag.verbindung_name ? (
+                    <div>
+                        <strong>Verbindung:</strong> {eintrag.verbindung_name}
+                    </div>
+                    ) : null}
+                </>
+                )}
+            </div>
+            );
+        })}
+        </div>
+
 
       {user && (
         <div className="bg-gray-100 p-6 rounded shadow space-y-4">
