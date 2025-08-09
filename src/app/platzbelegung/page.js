@@ -45,7 +45,7 @@ export default function PlatzbelegungPage() {
     isSameWeek(new Date(b.datum), new Date(), { weekStartsOn: 1 })
   );
 
-  const remainingBookings = Math.max(0, 6 - userActiveBookings.length);
+  const remainingBookings = Math.max(0, 8 - userActiveBookings.length);
 
   return (
     <main className="p-4 max-w-7xl mx-auto">
