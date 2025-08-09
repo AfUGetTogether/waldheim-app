@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { SlotBar } from '@/components/SlotBar';
-import { addDays, format, startOfWeek, isSameWeek } from 'date-fns';
+import { addDays, format, startOfWeek } from 'date-fns';
 import { useRouter } from 'next/navigation';
 
 export default function PlatzbelegungPage() {
@@ -12,6 +12,29 @@ export default function PlatzbelegungPage() {
   const [buchungen, setBuchungen] = useState([]);
   const [user, setUser] = useState(null);
   const router = useRouter();
+
+  // -------- Woche bestimmen: ab Sonntag 12:00 Uhr auf nächste Woche umschalten --------
+  const now = new Date();
+  const currentMonday = startOfWeek(now, { weekStartsOn: 1 });     // aktueller Montag
+  const nextMonday = addDays(currentMonday, 7);                     // nächster Montag
+  const sundayNoon = new Date(addDays(nextMonday, -1));             // Sonntag vor nächstem Montag
+  sundayNoon.setHours(12, 0, 0, 0);
+
+  // Ab Sonntag 12:00 -> nächste Woche anzeigen
+  const baseMonday = now >= sundayNoon ? nextMonday : currentMonday;
+
+  // Wochentage (Mo–Fr) auf Basis baseMonday
+  const weekDays = Array.from({ length: 5 }, (_, i) => {
+    const day = addDays(baseMonday, i);
+    return {
+      label: format(day, 'dd.MM.'),
+      date: format(day, 'yyyy-MM-dd'),
+    };
+  });
+
+  // String-Grenzen für die "Anzeigewoche" (robust gegen Zeitzonen)
+  const weekStartStr = format(baseMonday, 'yyyy-MM-dd');
+  const weekEndStr = format(addDays(baseMonday, 7), 'yyyy-MM-dd');
 
   useEffect(() => {
     const fetchData = async () => {
@@ -30,19 +53,12 @@ export default function PlatzbelegungPage() {
     fetchData();
   }, []);
 
-  const weekDays = Array.from({ length: 5 }, (_, i) => {
-    const day = addDays(startOfWeek(new Date(), { weekStartsOn: 1 }), i);
-    return {
-      label: format(day, 'dd.MM.'),
-      date: format(day, 'yyyy-MM-dd'),
-    };
-  });
-
+  // Aktive Buchungen des Users in der angezeigten Woche (Limit = 8)
   const userActiveBookings = buchungen.filter(b =>
     b.user_email === user?.email &&
     b.status === 'aktiv' &&
     b.datum &&
-    isSameWeek(new Date(b.datum), new Date(), { weekStartsOn: 1 })
+    b.datum >= weekStartStr && b.datum < weekEndStr
   );
 
   const remainingBookings = Math.max(0, 8 - userActiveBookings.length);
@@ -78,17 +94,17 @@ export default function PlatzbelegungPage() {
                         .filter(z => z.platz_id === platz.id)
                         .slice()
                         .sort((a, b) => a.von.localeCompare(b.von))
-                        .map((zeitfenster) => (
+                        .map((zf) => (
                           <SlotBar
-                            key={zeitfenster.id + '-' + day.date}
-                            zeitfenster={zeitfenster}
+                            key={zf.id + '-' + day.date}
+                            zeitfenster={zf}
                             buchungen={buchungen}
                             user={user}
                             day={day.date}
                             remainingBookings={remainingBookings}
                             router={router}
                           />
-                      ))}
+                        ))}
                     </div>
                   </td>
                 ))}
