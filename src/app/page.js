@@ -61,13 +61,13 @@ export default function HomePage() {
         </Link>
 
         <a
-          href="https://www.kruschd.de"
+          href="https://www.youtube.com/watch?v=E4WlUXrJgy4"
           target="_blank"
           rel="noopener noreferrer"
           className="block bg-white p-6 rounded-2xl shadow hover:shadow-lg hover:bg-emerald-50 transition"
         >
           <h2 className="text-xl font-semibold mb-2">📦 Materialbestellung</h2>
-          <p className="text-gray-600">Weiterleitung zur Seite für Materialbestellungen</p>
+          <p className="text-gray-600">NICHT ANKLICKEN! Materialbestellungen im 1. Abschnitt nur über physische Zettel</p>
         </a>
 
         <Link href="/ausfluege" className="block bg-white p-6 rounded-2xl shadow hover:shadow-lg hover:bg-emerald-50 transition">
