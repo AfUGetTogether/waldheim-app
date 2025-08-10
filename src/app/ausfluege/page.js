@@ -1,155 +1,225 @@
 // src/app/ausfluege/page.js
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { supabase } from '@/lib/supabaseClient';
-import { AnimatePresence, motion } from 'framer-motion';
 
 export default function AusfluegePage() {
   const [user, setUser] = useState(null);
   const [ausfluege, setAusfluege] = useState([]);
   const [verbindungen, setVerbindungen] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState(null);
+  const [toast, setToast] = useState(null);
 
+  // Edit-Form States
+  const [editingId, setEditingId] = useState(null);
   const [ziel, setZiel] = useState('');
-  const [verbindungId, setVerbindungId] = useState('');
-  const [bearbeiten, setBearbeiten] = useState(false);
-  const [bearbeiteId, setBearbeiteId] = useState(null);
+  const [verbindungId, setVerbindungId] = useState(''); // '' | uuid | 'custom:Zu Fuß' etc.
 
+  const isAdmin = user?.email === 'admin@wh.de';
+  const customOptions = ['Zu Fuß', 'Mit dem Fahrrad', 'Andere'];
+
+  // ---- Initial Load ----
   useEffect(() => {
-    const fetchInitialData = async () => {
+    const init = async () => {
       const { data: sessionData } = await supabase.auth.getSession();
       setUser(sessionData?.session?.user ?? null);
 
-      const { data: ausfluegeData } = await supabase
-        .from('ausfluege')
-        .select('*, verbindungen(*)')
-        .order('updated_at', { ascending: false });
-      setAusfluege(ausfluegeData || []);
-
-      const { data: verbindungenData } = await supabase.from('verbindungen').select('*');
-      setVerbindungen(verbindungenData || []);
+      await Promise.all([reloadAusfluege(), reloadVerbindungen()]);
     };
-
-    fetchInitialData();
+    init();
   }, []);
 
-  useEffect(() => {
-    if (user && bearbeiten && bearbeiteId) {
-      const eintrag = ausfluege.find(a => a.id === bearbeiteId);
-      if (eintrag) {
-        setZiel(eintrag.ziel || '');
-        setVerbindungId(
-          eintrag.verbindung_id || (eintrag.verbindung_name ? `custom:${eintrag.verbindung_name}` : '')
-        );
+  const reloadAusfluege = async () => {
+    const { data, error } = await supabase
+      .from('ausfluege')
+      .select('*, verbindungen(*)')
+      .order('updated_at', { ascending: false });
+    if (!error) setAusfluege(data || []);
+  };
+
+  const reloadVerbindungen = async () => {
+    const { data, error } = await supabase.from('verbindungen').select('*').order('abfahrt', { ascending: true });
+    if (!error) setVerbindungen(data || []);
+  };
+
+  // Für Anzeige: wie viele Gruppen nutzen eine Verbindung
+  const usedCountByVerbindung = useMemo(() => {
+    const map = new Map();
+    for (const a of ausfluege) {
+      if (a.verbindung_id) {
+        map.set(a.verbindung_id, (map.get(a.verbindung_id) || 0) + 1);
       }
     }
-  }, [user, bearbeiten, bearbeiteId, ausfluege]);
+    return map;
+  }, [ausfluege]);
 
-  const handleSubmit = async () => {
-    if (!ziel) return;
+  const startEdit = (eintrag) => {
+    setEditingId(eintrag.id);
+    setZiel(eintrag.ziel || '');
+    if (eintrag.verbindung_id) {
+      setVerbindungId(eintrag.verbindung_id);
+    } else if (eintrag.verbindung_name) {
+      setVerbindungId(`custom:${eintrag.verbindung_name}`);
+    } else {
+      setVerbindungId('');
+    }
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setZiel('');
+    setVerbindungId('');
+  };
+
+  const handleSave = async () => {
+    if (!ziel) {
+      showToast('Bitte ein Ausflugsziel eintragen.');
+      return;
+    }
     setLoading(true);
 
-    const verbindung_id = verbindungId.startsWith('custom:') ? null : verbindungId;
-    const verbindung_name = verbindungId.startsWith('custom:') ? verbindungId.replace('custom:', '') : null;
+    // Admin soll beim Bearbeiten die ursprüngliche Gruppe respektieren
+    const targetEmail = isAdmin && editingId
+      ? ausfluege.find(a => a.id === editingId)?.gruppe_email
+      : user?.email;
 
-    const eintragEmail = isAdmin && bearbeiteId
-        ? ausfluege.find(a => a.id === bearbeiteId)?.gruppe_email
-        : user.email;
+    if (!targetEmail) {
+      showToast('Nicht eingeloggt.');
+      setLoading(false);
+      return;
+    }
 
-    const { error } = await supabase.from('ausfluege').upsert({
-        id: bearbeiteId || undefined,
-        gruppe_email: eintragEmail,
-        ziel,
-        verbindung_id,
-        verbindung_name,
-        updated_at: new Date()
-    }, { onConflict: ['id'] });
+    // Verbindung auflösen
+    const isCustom = typeof verbindungId === 'string' && verbindungId.startsWith('custom:');
+    const payload = {
+      id: editingId || undefined,
+      gruppe_email: targetEmail,
+      ziel,
+      verbindung_id: isCustom || verbindungId === '' ? null : verbindungId, // uuid oder null
+      verbindung_name: isCustom ? verbindungId.replace('custom:', '') : null,
+      updated_at: new Date()
+    };
 
-    if (!error) {
-        setMessage('✅ Ausflug gespeichert!');
-        setBearbeiten(false);
-        setBearbeiteId(null);
-        const { data: neue } = await supabase
-        .from('ausfluege')
-        .select('*, verbindungen(*)')
-        .order('updated_at', { ascending: false });
-        setAusfluege(neue || []);
+    // Limit prüfen (nur wenn Standard-Verbindung gewählt & nicht die gleiche wie vorher)
+    if (!isCustom && verbindungId) {
+      const chosen = verbindungen.find(v => v.id === verbindungId);
+      if (chosen) {
+        const alreadyUsed = usedCountByVerbindung.get(chosen.id) || 0;
+
+        // Wenn wir einen bestehenden Eintrag bearbeiten, der bereits auf dieser Verbindung war,
+        // dann darf er sie weiterhin wählen, auch wenn "voll".
+        const previouslySame =
+          editingId &&
+          ausfluege.find(a => a.id === editingId)?.verbindung_id === chosen.id;
+
+        if (!previouslySame && alreadyUsed >= chosen.limit) {
+          showToast('Diese Verbindung ist bereits voll belegt.');
+          setLoading(false);
+          return;
+        }
+      }
+    }
+
+    const { error } = await supabase
+      .from('ausfluege')
+      .upsert(payload, { onConflict: ['id'] });
+
+    if (error) {
+      showToast('Fehler beim Speichern.');
     } else {
-        setMessage('❌ Fehler beim Speichern');
+      showToast('✅ Ausflug gespeichert!');
+      cancelEdit();
+      await reloadAusfluege();
     }
 
     setLoading(false);
-    setTimeout(() => setMessage(null), 3000);
-    };
+  };
 
   const handleDelete = async (id) => {
+    const confirmDelete = confirm('Diesen Ausflug wirklich löschen?');
+    if (!confirmDelete) return;
+    setLoading(true);
+
     const { error } = await supabase.from('ausfluege').delete().eq('id', id);
-    if (!error) {
-      setMessage('🗑️ Ausflug gelöscht');
-      const { data: neue } = await supabase
-        .from('ausfluege')
-        .select('*, verbindungen(*)')
-        .order('updated_at', { ascending: false });
-      setAusfluege(neue || []);
+    if (error) {
+      showToast('Fehler beim Löschen.');
     } else {
-      setMessage('❌ Fehler beim Löschen');
+      showToast('🗑️ Ausflug gelöscht');
+      // Sofort aus der Liste nehmen (optimistisch)
+      setAusfluege(prev => prev.filter(a => a.id !== id));
+      // und sicherheitshalber neu laden
+      await reloadAusfluege();
     }
-    setTimeout(() => setMessage(null), 3000);
+    setLoading(false);
   };
 
-  const getAnzahlGruppen = (verbindung_id) => {
-    return ausfluege.filter(a => a.verbindung_id === verbindung_id).length;
+  const showToast = (msg) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 2500);
   };
 
-  const customOptions = ["Zu Fuß", "Mit dem Fahrrad", "Andere"];
-  const isAdmin = user?.email === 'admin@wh.de';
+  // Kann der aktuelle User diesen Eintrag bearbeiten/löschen?
+  const canEdit = (eintrag) => isAdmin || user?.email === eintrag.gruppe_email;
 
   return (
     <main className="p-4 max-w-4xl mx-auto">
       <h1 className="text-2xl font-bold mb-6">🌳 Ausflüge</h1>
 
+      {/* Liste aller Ausflüge */}
       <div className="mb-8 space-y-4">
-        {ausfluege.map((eintrag, idx) => (
-          <div key={idx} className="p-4 border rounded shadow-sm bg-white">
-            <div><strong>Gruppe:</strong> {eintrag.gruppe_email.split('@')[0]}</div>
-            <div><strong>Ziel:</strong> {eintrag.ziel}</div>
-            {eintrag.verbindungen ? (
-              <div>
-                <strong>Verbindung:</strong> {eintrag.verbindungen.linie}, {eintrag.verbindungen.abfahrt} ab {eintrag.verbindungen.haltestelle}
+        {ausfluege.length === 0 ? (
+          <p className="text-gray-600">Noch keine Ausflüge eingetragen.</p>
+        ) : (
+          ausfluege.map((eintrag) => (
+            <div key={eintrag.id} className="p-4 border rounded shadow-sm bg-white">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div><strong>Gruppe:</strong> {eintrag.gruppe_email === 'wtv@wh.de' ? 'WTV' : `Gruppe ${eintrag.gruppe_email.split('@')[0]}`}</div>
+                  <div><strong>Ziel:</strong> {eintrag.ziel}</div>
+                  {eintrag.verbindungen ? (
+                    <div>
+                      <strong>Verbindung:</strong> {eintrag.verbindungen.linie}, {eintrag.verbindungen.abfahrt} ab {eintrag.verbindungen.haltestelle}
+                    </div>
+                  ) : eintrag.verbindung_name ? (
+                    <div>
+                      <strong>Verbindung:</strong> {eintrag.verbindung_name}
+                    </div>
+                  ) : (
+                    <div className="text-gray-500"><em>Keine Verbindung angegeben</em></div>
+                  )}
+                </div>
+
+                {canEdit(eintrag) && (
+                  <div className="shrink-0 flex gap-3">
+                    <button
+                      className="text-emerald-600 hover:underline text-sm"
+                      onClick={() => startEdit(eintrag)}
+                    >
+                      Bearbeiten
+                    </button>
+                    <button
+                      className="text-red-600 hover:underline text-sm"
+                      onClick={() => handleDelete(eintrag.id)}
+                    >
+                      Löschen
+                    </button>
+                  </div>
+                )}
               </div>
-            ) : eintrag.verbindung_name ? (
-              <div>
-                <strong>Verbindung:</strong> {eintrag.verbindung_name}
-              </div>
-            ) : null}
-            {(user?.email === eintrag.gruppe_email || isAdmin) && (
-              <div className="flex gap-3 mt-2">
-                <button
-                  className="text-emerald-600 hover:underline text-sm"
-                  onClick={() => {
-                    setBearbeiten(true);
-                    setBearbeiteId(eintrag.id);
-                  }}
-                >
-                  Bearbeiten
-                </button>
-                <button
-                  onClick={() => handleDelete(eintrag.id)}
-                  className="text-red-600 hover:underline text-sm"
-                >
-                  Löschen
-                </button>
-              </div>
-            )}
-          </div>
-        ))}
+            </div>
+          ))
+        )}
       </div>
 
-      {user && bearbeiten && (
-        <div className="bg-gray-100 p-6 rounded shadow space-y-4">
-          <h2 className="text-xl font-semibold">📝 Ausflug bearbeiten</h2>
+      {/* Bearbeiten-/Anlegenbereich: sichtbar nur mit Login */}
+      {user && (
+        <div className="bg-gray-50 p-6 rounded shadow space-y-4">
+          <h2 className="text-xl font-semibold">
+            {editingId ? '📝 Ausflug bearbeiten' : '📝 Eigenen Ausflug eintragen'}
+          </h2>
+
+          {/* Ziel */}
           <input
             type="text"
             placeholder="Ausflugsziel"
@@ -157,6 +227,8 @@ export default function AusfluegePage() {
             onChange={(e) => setZiel(e.target.value)}
             className="w-full p-2 border rounded"
           />
+
+          {/* Verbindung */}
           <select
             value={verbindungId}
             onChange={(e) => setVerbindungId(e.target.value)}
@@ -164,51 +236,52 @@ export default function AusfluegePage() {
           >
             <option value="">– Verbindung wählen –</option>
             {verbindungen.map((v) => {
-              const benutzt = getAnzahlGruppen(v.id);
-              const voll = benutzt >= v.limit && verbindungId !== v.id;
+              const benutzt = usedCountByVerbindung.get(v.id) || 0;
+              // Wenn gerade dieser Eintrag editiert wird & schon auf dieser Verbindung ist -> nicht deaktivieren
+              const currentIsThis =
+                editingId && ausfluege.find(a => a.id === editingId)?.verbindung_id === v.id;
+              const voll = !currentIsThis && benutzt >= v.limit;
+
               return (
                 <option key={v.id} value={v.id} disabled={voll}>
                   {v.linie} – {v.abfahrt} ab {v.haltestelle} ({benutzt}/{v.limit})
                 </option>
               );
             })}
-            {customOptions.map((opt, i) => (
-              <option key={`custom-${i}`} value={`custom:${opt}`}>{opt}</option>
+            {/* Custom-Optionen */}
+            {customOptions.map((opt) => (
+              <option key={`custom-${opt}`} value={`custom:${opt}`}>
+                {opt}
+              </option>
             ))}
           </select>
-          <div className="flex gap-2">
+
+          <div className="flex flex-wrap items-center gap-3">
             <button
-              onClick={handleSubmit}
-              disabled={loading}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-4 rounded"
+              onClick={handleSave}
+              disabled={loading || !ziel}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-4 rounded disabled:opacity-50"
             >
               Speichern
             </button>
-            <button
-              onClick={() => {
-                setBearbeiten(false);
-                setBearbeiteId(null);
-              }}
-              className="text-gray-600 hover:underline"
-            >
-              Abbrechen
-            </button>
+            {editingId && (
+              <button
+                onClick={cancelEdit}
+                className="text-gray-600 hover:underline"
+              >
+                Abbrechen
+              </button>
+            )}
           </div>
         </div>
       )}
 
-      <AnimatePresence>
-        {message && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 20 }}
-            className="fixed bottom-6 left-1/2 transform -translate-x-1/2 bg-emerald-600 text-white px-4 py-2 rounded shadow-md z-50"
-          >
-            {message}
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* Toast */}
+      {toast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-emerald-600 text-white px-4 py-2 rounded shadow">
+          {toast}
+        </div>
+      )}
     </main>
   );
 }
