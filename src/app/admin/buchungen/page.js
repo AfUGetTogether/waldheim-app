@@ -1,9 +1,16 @@
+// src/app/admin/buchungen/page.js
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useRouter } from 'next/navigation';
-import { format, startOfWeek, addDays, endOfWeek, isWithinInterval } from 'date-fns';
+import {
+  format,
+  startOfWeek,
+  addDays,
+  endOfWeek,
+  isWithinInterval,
+} from 'date-fns';
 import de from 'date-fns/locale/de';
 
 const BOOKING_LIMIT = 8;
@@ -26,12 +33,12 @@ export default function AdminBuchungenPage() {
 
   // ---- Wochenlogik: ab Sonntag 12:00 Uhr bereits die nächste Woche anzeigen ----
   const now = new Date();
-  const showNextWeek = now.getDay() === 0 && now.getHours() >= 12; // Sonntag >= 12:00
-  const refDate = showNextWeek ? addDays(now, 1) : now;            // Referenz: Montag der "angezeigten" Woche
-  const weekStart = startOfWeek(refDate, { weekStartsOn: 1 });     // Mo
-  const weekEnd = addDays(weekStart, 6);                           // So
+  const showNextWeek = now.getDay() === 0 && now.getHours() >= 12; // Sonntag ≥ 12:00
+  const refDate = showNextWeek ? addDays(now, 1) : now;            // Referenz für Wochenstart
+  const weekStart = startOfWeek(refDate, { weekStartsOn: 1 });     // Montag
+  const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1 });       // Sonntag 23:59
 
-  // Schutz: nur Admin darf rein
+  // Nur Admin darf rein
   useEffect(() => {
     (async () => {
       const { data: { session } } = await supabase.auth.getSession();
@@ -44,7 +51,7 @@ export default function AdminBuchungenPage() {
     })();
   }, [router]);
 
-  // Daten laden
+  // Daten laden (nur aktuelle „angezeigte“ Woche)
   useEffect(() => {
     if (!admin) return;
     (async () => {
@@ -59,23 +66,27 @@ export default function AdminBuchungenPage() {
           von_uhrzeit,
           bis_uhrzeit,
           zeitfenster:zeitfenster_id (
+            id,
             von,
             bis,
-            platz:platz_id ( name )
+            plaetze:platz_id ( id, name )
           )
         `)
+        .gte('datum', format(weekStart, 'yyyy-MM-dd'))
+        .lte('datum', format(weekEnd, 'yyyy-MM-dd'))
         .order('datum', { ascending: true });
 
       if (error) {
         console.error('Fehler beim Laden:', error.message);
+        setBuchungen([]);
       } else {
         setBuchungen(data || []);
       }
       setLoading(false);
     })();
-  }, [admin]);
+  }, [admin, weekStart, weekEnd]);
 
-  // aktive Buchungen der "angezeigten" Woche (mit Sonntag-12-Regel) pro Gruppe zählen
+  // aktive Buchungen der „angezeigten“ Woche pro Gruppe zählen
   const aktiveDieseWocheByEmail = useMemo(() => {
     const map = new Map();
     for (const b of buchungen) {
@@ -98,7 +109,7 @@ export default function AdminBuchungenPage() {
     return map;
   }, [buchungen, aktiveDieseWocheByEmail]);
 
-  // Gruppen-Summary (alphabetisch sortiert)
+  // Gruppen-Summary
   const gruppenSummary = useMemo(() => {
     const emails = [...new Set(buchungen.map(b => b.user_email))].sort((a, b) =>
       emailToGroupName(a).localeCompare(emailToGroupName(b), 'de')
@@ -111,14 +122,16 @@ export default function AdminBuchungenPage() {
     }));
   }, [buchungen, aktiveDieseWocheByEmail, verbleibendByEmail]);
 
-  // Liste sortiert: erst Datum, dann Startzeit
+  // Tabelle sortiert: erst Datum, dann Startzeit
   const sichtbareBuchungen = useMemo(() => {
     return (buchungen || [])
       .slice()
       .sort((a, b) => {
         const ad = new Date(a.datum) - new Date(b.datum);
         if (ad !== 0) return ad;
-        return (a.von_uhrzeit || a.zeitfenster?.von || '').localeCompare(b.von_uhrzeit || b.zeitfenster?.von || '');
+        return (a.von_uhrzeit || a.zeitfenster?.von || '').localeCompare(
+          b.von_uhrzeit || b.zeitfenster?.von || ''
+        );
       });
   }, [buchungen]);
 
@@ -134,7 +147,10 @@ export default function AdminBuchungenPage() {
       console.error(error);
     } else {
       setToast('✅ Storniert');
-      setBuchungen(prev => prev.map(b => b.id === id ? { ...b, status: 'storniert', deleted_at: new Date().toISOString() } : b));
+      // lokal aktualisieren, ohne erneut laden zu müssen
+      setBuchungen(prev =>
+        prev.map(b => (b.id === id ? { ...b, status: 'storniert', deleted_at: new Date().toISOString() } : b))
+      );
     }
     setTimeout(() => setToast(null), 2000);
   };
@@ -149,7 +165,11 @@ export default function AdminBuchungenPage() {
       <div className="text-center text-gray-600 mb-4">
         Woche: {format(weekStart, 'dd.MM.yyyy', { locale: de })} – {format(weekEnd, 'dd.MM.yyyy', { locale: de })}
         {' '}· Limit: {BOOKING_LIMIT} / Gruppe
-        {showNextWeek && <span className="block text-xs text-gray-500 mt-1">Hinweis: ab So 12:00 Uhr wird bereits die nächste Woche angezeigt</span>}
+        {showNextWeek && (
+          <span className="block text-xs text-gray-500 mt-1">
+            Hinweis: ab So 12:00 Uhr wird bereits die nächste Woche angezeigt
+          </span>
+        )}
       </div>
 
       {/* Gruppen-Summary */}
@@ -174,7 +194,7 @@ export default function AdminBuchungenPage() {
 
       {/* Buchungen-Tabelle */}
       <div className="bg-white rounded-xl shadow p-4">
-        <h2 className="text-lg font-semibold mb-3">Alle Buchungen</h2>
+        <h2 className="text-lg font-semibold mb-3">Alle Buchungen (Woche)</h2>
         {loading ? (
           <p className="text-gray-500">Lade…</p>
         ) : sichtbareBuchungen.length === 0 ? (
@@ -194,12 +214,14 @@ export default function AdminBuchungenPage() {
               </thead>
               <tbody>
                 {sichtbareBuchungen.map(b => {
-                  const platzName = b.zeitfenster?.platz?.name || '—';
+                  const platzName = b.zeitfenster?.plaetze?.name || '—';
                   const von = b.von_uhrzeit || b.zeitfenster?.von || '';
                   const bis = b.bis_uhrzeit || b.zeitfenster?.bis || '';
                   return (
                     <tr key={b.id} className="border-t">
-                      <td className="p-2">{b.datum ? format(new Date(b.datum), 'dd.MM.yyyy', { locale: de }) : '—'}</td>
+                      <td className="p-2">
+                        {b.datum ? format(new Date(b.datum), 'dd.MM.yyyy', { locale: de }) : '—'}
+                      </td>
                       <td className="p-2">{platzName}</td>
                       <td className="p-2">{von} – {bis}</td>
                       <td className="p-2">{emailToGroupName(b.user_email)}</td>

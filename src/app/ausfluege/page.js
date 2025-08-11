@@ -137,22 +137,34 @@ export default function AusfluegePage() {
   };
 
   const handleDelete = async (id) => {
-    const confirmDelete = confirm('Diesen Ausflug wirklich löschen?');
-    if (!confirmDelete) return;
-    setLoading(true);
+      const confirmDelete = confirm('Diesen Ausflug wirklich löschen?');
+      if (!confirmDelete) return;
+      setLoading(true);
 
-    const { error } = await supabase.from('ausfluege').delete().eq('id', id);
-    if (error) {
-      showToast('Fehler beim Löschen.');
-    } else {
-      showToast('🗑️ Ausflug gelöscht');
-      // Sofort aus der Liste nehmen (optimistisch)
-      setAusfluege(prev => prev.filter(a => a.id !== id));
-      // und sicherheitshalber neu laden
-      await reloadAusfluege();
-    }
-    setLoading(false);
-  };
+      // WICHTIG: .select() anhängen, um echte Rückmeldung zu bekommen
+      const { data, error } = await supabase
+        .from('ausfluege')
+        .delete()
+        .eq('id', id)
+        .select(); // gibt gelöschte Zeilen zurück
+
+      if (error) {
+        setToast('❌ Fehler beim Löschen: ' + error.message);
+      } else if (!data || data.length === 0) {
+        // Kein Fehlerobjekt, aber auch keine gelöschte Zeile -> meist RLS verweigert
+        setToast('❌ Löschen nicht erlaubt (RLS/Policy greift).');
+      } else {
+        setToast('🗑️ Ausflug gelöscht');
+        // Optimistisch entfernen
+        setAusfluege((prev) => prev.filter((a) => a.id !== id));
+        // Sicherheitshalber frisch laden
+        await reloadAusfluege();
+      }
+
+      setLoading(false);
+      setTimeout(() => setToast(null), 2500);
+    };
+
 
   const showToast = (msg) => {
     setToast(msg);
