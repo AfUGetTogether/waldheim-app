@@ -45,30 +45,48 @@ export function SlotBar({ zeitfenster, buchungen, user, day, remainingBookings, 
       setMessage('Buchungslimit erreicht');
       return;
     }
-
     setLoading(true);
 
-    const { error } = await supabase.from('buchungen').insert([
-      {
-        user_email: user.email,
-        zeitfenster_id: zeitfenster.id,
-        gebucht_am: new Date(),
-        datum: day,
-        status: 'aktiv',
-        von_uhrzeit: zeitfenster.von,
-        bis_uhrzeit: zeitfenster.bis,
-      }
-    ]);
+    // (Optional) Verfügbarkeit prüfen – schützt vor alter Anzeige
+    const { data: clash, error: clashErr } = await supabase
+      .from('buchungen')
+      .select('id')
+      .eq('zeitfenster_id', zeitfenster.id)
+      .eq('datum', day)
+      .eq('status', 'aktiv')
+      .maybeSingle();
+
+    if (!clashErr && clash) {
+      setMessage('Slot ist bereits vergeben.');
+      setLoading(false);
+      return;
+    }
+
+    const { error } = await supabase.from('buchungen').insert([{
+      user_email: user.email,
+      zeitfenster_id: zeitfenster.id,
+      gebucht_am: new Date(),
+      datum: day,
+      status: 'aktiv',
+      von_uhrzeit: zeitfenster.von,
+      bis_uhrzeit: zeitfenster.bis,
+    }]);
 
     if (error) {
-      setMessage('Fehler beim Buchen');
+      // 23505 = unique_violation (falls jemand parallel war)
+      if (error.code === '23505') {
+        setMessage('Slot gerade vergeben worden.');
+      } else {
+        setMessage('Fehler beim Buchen');
+        console.error(error);
+      }
     } else {
       setMessage('Buchung erfolgreich!');
       router.refresh();
     }
-
     setLoading(false);
   };
+
 
   const handleCancel = async (bookingId) => {
     setLoading(true);
