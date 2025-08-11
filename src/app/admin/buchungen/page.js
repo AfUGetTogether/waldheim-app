@@ -1,7 +1,7 @@
 // src/app/admin/buchungen/page.js
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useRouter } from 'next/navigation';
 import {
@@ -26,20 +26,27 @@ function emailToGroupName(email) {
 
 export default function AdminBuchungenPage() {
   const router = useRouter();
+
   const [admin, setAdmin] = useState(null);
+  const [authChecked, setAuthChecked] = useState(false);
+
   const [buchungen, setBuchungen] = useState([]);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
 
-  // ---- Wochenlogik: ab Sonntag 12:00 Uhr bereits die nächste Woche anzeigen ----
-  const now = new Date();
-  const showNextWeek = now.getDay() === 0 && now.getHours() >= 12; // Sonntag ≥ 12:00
-  const refDate = showNextWeek ? addDays(now, 1) : now;            // Referenz für Wochenstart
-  const weekStart = startOfWeek(refDate, { weekStartsOn: 1 });     // Montag
-  const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1 });       // Sonntag 23:59
+  // --- Wochenlogik: ab Sonntag 12:00 Uhr bereits die nächste Woche ---
+  const { weekStart, weekEnd, showNextWeek } = useMemo(() => {
+    const now = new Date();
+    const showNext = now.getDay() === 0 && now.getHours() >= 12; // Sonntag >= 12:00
+    const refDate = showNext ? addDays(now, 1) : now;
+    const ws = startOfWeek(refDate, { weekStartsOn: 1 }); // Montag
+    const we = endOfWeek(ws, { weekStartsOn: 1 });       // Sonntag 23:59
+    return { weekStart: ws, weekEnd: we, showNextWeek: showNext };
+  }, []); // stabil, ändert sich nur beim Reload
 
-  // Nur Admin darf rein
+  // --- 1) Auth-Check (einmalig) ---
   useEffect(() => {
+    let cancelled = false;
     (async () => {
       const { data: { session } } = await supabase.auth.getSession();
       const u = session?.user ?? null;
@@ -47,14 +54,20 @@ export default function AdminBuchungenPage() {
         router.push('/');
         return;
       }
-      setAdmin(u);
+      if (!cancelled) {
+        setAdmin(u);
+        setAuthChecked(true);
+      }
     })();
+    return () => { cancelled = true; };
   }, [router]);
 
-  // Daten laden (nur aktuelle „angezeigte“ Woche)
+  // --- 2) Daten für die (stabil berechnete) Woche fetchen ---
   useEffect(() => {
-    if (!admin) return;
-    (async () => {
+    if (!authChecked || !admin) return;
+    let cancelled = false;
+
+    const fetchData = async () => {
       setLoading(true);
       const { data, error } = await supabase
         .from('buchungen')
@@ -76,17 +89,22 @@ export default function AdminBuchungenPage() {
         .lte('datum', format(weekEnd, 'yyyy-MM-dd'))
         .order('datum', { ascending: true });
 
-      if (error) {
-        console.error('Fehler beim Laden:', error.message);
-        setBuchungen([]);
-      } else {
-        setBuchungen(data || []);
+      if (!cancelled) {
+        if (error) {
+          console.error('Fehler beim Laden:', error.message);
+          setBuchungen([]);
+        } else {
+          setBuchungen(data || []);
+        }
+        setLoading(false);
       }
-      setLoading(false);
-    })();
-  }, [admin, weekStart, weekEnd]);
+    };
 
-  // aktive Buchungen der „angezeigten“ Woche pro Gruppe zählen
+    fetchData();
+    return () => { cancelled = true; };
+  }, [authChecked, admin, weekStart, weekEnd]);
+
+  // aktive Buchungen der Woche pro Gruppe zählen
   const aktiveDieseWocheByEmail = useMemo(() => {
     const map = new Map();
     for (const b of buchungen) {
@@ -99,30 +117,22 @@ export default function AdminBuchungenPage() {
     return map;
   }, [buchungen, weekStart, weekEnd]);
 
-  const verbleibendByEmail = useMemo(() => {
-    const map = new Map();
-    const emails = [...new Set(buchungen.map(b => b.user_email))];
-    for (const mail of emails) {
-      const used = aktiveDieseWocheByEmail.get(mail) || 0;
-      map.set(mail, Math.max(0, BOOKING_LIMIT - used));
-    }
-    return map;
-  }, [buchungen, aktiveDieseWocheByEmail]);
-
-  // Gruppen-Summary
   const gruppenSummary = useMemo(() => {
     const emails = [...new Set(buchungen.map(b => b.user_email))].sort((a, b) =>
       emailToGroupName(a).localeCompare(emailToGroupName(b), 'de')
     );
-    return emails.map(mail => ({
-      email: mail,
-      name: emailToGroupName(mail),
-      used: aktiveDieseWocheByEmail.get(mail) || 0,
-      left: verbleibendByEmail.get(mail) ?? BOOKING_LIMIT
-    }));
-  }, [buchungen, aktiveDieseWocheByEmail, verbleibendByEmail]);
+    return emails.map(mail => {
+      const used = aktiveDieseWocheByEmail.get(mail) || 0;
+      return {
+        email: mail,
+        name: emailToGroupName(mail),
+        used,
+        left: Math.max(0, BOOKING_LIMIT - used),
+      };
+    });
+  }, [buchungen, aktiveDieseWocheByEmail]);
 
-  // Tabelle sortiert: erst Datum, dann Startzeit
+  // Tabelle sortiert: Datum, dann Startzeit
   const sichtbareBuchungen = useMemo(() => {
     return (buchungen || [])
       .slice()
@@ -147,7 +157,6 @@ export default function AdminBuchungenPage() {
       console.error(error);
     } else {
       setToast('✅ Storniert');
-      // lokal aktualisieren, ohne erneut laden zu müssen
       setBuchungen(prev =>
         prev.map(b => (b.id === id ? { ...b, status: 'storniert', deleted_at: new Date().toISOString() } : b))
       );
@@ -155,13 +164,14 @@ export default function AdminBuchungenPage() {
     setTimeout(() => setToast(null), 2000);
   };
 
-  if (!admin) return null;
+  // Während des Auth-Checks nichts rendern → verhindert Flackern
+  if (!authChecked) return null;
 
   return (
     <main className="p-4 max-w-6xl mx-auto">
       <h1 className="text-2xl font-bold text-emerald-700 mb-6 text-center">Admin: Buchungsübersicht</h1>
 
-      {/* Wochen-Info (mit Sonntag-12-Regel) */}
+      {/* Wochen-Info */}
       <div className="text-center text-gray-600 mb-4">
         Woche: {format(weekStart, 'dd.MM.yyyy', { locale: de })} – {format(weekEnd, 'dd.MM.yyyy', { locale: de })}
         {' '}· Limit: {BOOKING_LIMIT} / Gruppe
@@ -174,7 +184,7 @@ export default function AdminBuchungenPage() {
 
       {/* Gruppen-Summary */}
       <div className="bg-white rounded-xl shadow p-4 mb-8">
-        <h2 className="text-lg font-semibold mb-3">Verbleibende Buchungen pro Gruppe (angezeigte Woche)</h2>
+        <h2 className="text-lg font-semibold mb-3">Verbleibende Buchungen pro Gruppe (Woche)</h2>
         {gruppenSummary.length === 0 ? (
           <p className="text-gray-500">Keine Buchungen vorhanden.</p>
         ) : (
