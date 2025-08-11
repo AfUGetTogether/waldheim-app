@@ -81,6 +81,11 @@ export default function AdminDashboard() {
           <p className="text-gray-600">Plätze und Zeitfenster verwalten</p>
         </Link>
 
+        <Link href="/admin/buchungen" className="block bg-white p-6 rounded-2xl shadow hover:shadow-lg hover:bg-emerald-50 transition">
+          <h2 className="text-xl font-semibold mb-2">📆 Buchungen</h2>
+          <p className="text-gray-600">Wer hat wann welchen Platz?</p>
+        </Link>
+
         <Link href="/admin/gruppenbudget" className="block bg-white p-6 rounded-2xl shadow hover:shadow-lg hover:bg-emerald-50 transition">
           <h2 className="text-xl font-semibold mb-2">💰 Gruppenbudget</h2>
           <p className="text-gray-600">Budgets der Gruppen verwalten</p>

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useRouter } from 'next/navigation';
-import { format, startOfWeek, endOfWeek, isWithinInterval, isSameWeek } from 'date-fns';
+import { format, startOfWeek, addDays, endOfWeek, isWithinInterval } from 'date-fns';
 import de from 'date-fns/locale/de';
 
 const BOOKING_LIMIT = 8;
@@ -24,6 +24,13 @@ export default function AdminBuchungenPage() {
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
 
+  // ---- Wochenlogik: ab Sonntag 12:00 Uhr bereits die nächste Woche anzeigen ----
+  const now = new Date();
+  const showNextWeek = now.getDay() === 0 && now.getHours() >= 12; // Sonntag >= 12:00
+  const refDate = showNextWeek ? addDays(now, 1) : now;            // Referenz: Montag der "angezeigten" Woche
+  const weekStart = startOfWeek(refDate, { weekStartsOn: 1 });     // Mo
+  const weekEnd = addDays(weekStart, 6);                           // So
+
   // Schutz: nur Admin darf rein
   useEffect(() => {
     (async () => {
@@ -42,8 +49,6 @@ export default function AdminBuchungenPage() {
     if (!admin) return;
     (async () => {
       setLoading(true);
-
-      // Alle Buchungen mit Join auf Zeitfenster und Platz
       const { data, error } = await supabase
         .from('buchungen')
         .select(`
@@ -70,12 +75,7 @@ export default function AdminBuchungenPage() {
     })();
   }, [admin]);
 
-  // Aktuelle Woche (Mo–So). Falls du die „Sonntag 12 Uhr“-Regel auch hier willst, sag Bescheid – baue ich ein.
-  const now = new Date();
-  const weekStart = startOfWeek(now, { weekStartsOn: 1 });
-  const weekEnd = endOfWeek(now, { weekStartsOn: 1 });
-
-  // aktive Buchungen der aktuellen Woche pro Gruppe zählen
+  // aktive Buchungen der "angezeigten" Woche (mit Sonntag-12-Regel) pro Gruppe zählen
   const aktiveDieseWocheByEmail = useMemo(() => {
     const map = new Map();
     for (const b of buchungen) {
@@ -111,7 +111,7 @@ export default function AdminBuchungenPage() {
     }));
   }, [buchungen, aktiveDieseWocheByEmail, verbleibendByEmail]);
 
-  // Optional: nur aktuelle & zukünftige Buchungen anzeigen
+  // Liste sortiert: erst Datum, dann Startzeit
   const sichtbareBuchungen = useMemo(() => {
     return (buchungen || [])
       .slice()
@@ -134,7 +134,6 @@ export default function AdminBuchungenPage() {
       console.error(error);
     } else {
       setToast('✅ Storniert');
-      // lokal entfernen/aktualisieren
       setBuchungen(prev => prev.map(b => b.id === id ? { ...b, status: 'storniert', deleted_at: new Date().toISOString() } : b));
     }
     setTimeout(() => setToast(null), 2000);
@@ -146,15 +145,16 @@ export default function AdminBuchungenPage() {
     <main className="p-4 max-w-6xl mx-auto">
       <h1 className="text-2xl font-bold text-emerald-700 mb-6 text-center">Admin: Buchungsübersicht</h1>
 
-      {/* Wochen-Info */}
+      {/* Wochen-Info (mit Sonntag-12-Regel) */}
       <div className="text-center text-gray-600 mb-4">
-        Woche: {format(weekStart, 'dd.MM.yyyy', { locale: de })} – {format(weekEnd, 'dd.MM.yyyy', { locale: de })} &nbsp;
-        (Limit: {BOOKING_LIMIT} / Gruppe)
+        Woche: {format(weekStart, 'dd.MM.yyyy', { locale: de })} – {format(weekEnd, 'dd.MM.yyyy', { locale: de })}
+        {' '}· Limit: {BOOKING_LIMIT} / Gruppe
+        {showNextWeek && <span className="block text-xs text-gray-500 mt-1">Hinweis: ab So 12:00 Uhr wird bereits die nächste Woche angezeigt</span>}
       </div>
 
       {/* Gruppen-Summary */}
       <div className="bg-white rounded-xl shadow p-4 mb-8">
-        <h2 className="text-lg font-semibold mb-3">Verbleibende Buchungen pro Gruppe (diese Woche)</h2>
+        <h2 className="text-lg font-semibold mb-3">Verbleibende Buchungen pro Gruppe (angezeigte Woche)</h2>
         {gruppenSummary.length === 0 ? (
           <p className="text-gray-500">Keine Buchungen vorhanden.</p>
         ) : (
