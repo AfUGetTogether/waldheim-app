@@ -1,206 +1,303 @@
-// src/app/admin/verbindungen/page.js
 'use client';
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 
 export default function AdminVerbindungenPage() {
-  const [sessionChecked, setSessionChecked] = useState(false);
-  const [isAdmin, setIsAdmin] = useState(false);
+  // Auth / Admin
+  const [user, setUser] = useState(null);
 
-  const [items, setItems] = useState([]);
-  const [linie, setLinie] = useState('');
-  const [abfahrt, setAbfahrt] = useState('');     // z.B. "09:42" (Text reicht)
-  const [haltestelle, setHaltestelle] = useState('');
-  const [capacity, setCapacity] = useState('');   // falls du die Spalte noch "limit" nennst, ist das egal – siehe unten
+  // GTFS Upload
+  const [lastUpdate, setLastUpdate] = useState(null);
+  const [gtfsFile, setGtfsFile] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const [gtfsMessage, setGtfsMessage] = useState(null);
 
-  const [loading, setLoading] = useState(false);
-  const [msg, setMsg] = useState(null);
+  // Manuelle Verbindungen
+  const [verbindungen, setVerbindungen] = useState([]);
+  const [loadingList, setLoadingList] = useState(true);
+  const [form, setForm] = useState({
+    linie: '',
+    abfahrt: '',
+    haltestelle: '',
+    limit: 3,
+  });
+  const [formBusy, setFormBusy] = useState(false);
+  const [formMsg, setFormMsg] = useState(null);
 
-  // --- Admin-Check (zeigt das Formular nur für Admin) ---
   useEffect(() => {
-    let cancel = false;
     (async () => {
       const { data: { session } } = await supabase.auth.getSession();
-      const email = session?.user?.email || '';
-      if (!cancel) {
-        setIsAdmin(email === 'admin@wh.de');
-        setSessionChecked(true);
+      const u = session?.user ?? null;
+      if (!u || u.email !== 'admin@wh.de') {
+        // Optional: redirect('/'); – hier nur Anzeige auslassen
+        return;
       }
+      setUser(u);
+
+      await Promise.all([fetchLastUpdate(), fetchVerbindungen()]);
     })();
-    return () => { cancel = true; };
   }, []);
 
-  // --- Verbindungen laden ---
-  const load = async () => {
+  const fetchLastUpdate = async () => {
+    const { data, error } = await supabase
+      .from('gtfs_meta')
+      .select('*')
+      .order('uploaded_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (!error) setLastUpdate(data || null);
+  };
+
+  const fetchVerbindungen = async () => {
+    setLoadingList(true);
     const { data, error } = await supabase
       .from('verbindungen')
-      .select('*')
-      .order('linie', { ascending: true });
+      .select('*');
 
-    if (error) {
-      console.error('Laden der Verbindungen fehlgeschlagen:', error.message);
-      setItems([]);
-    } else {
-      setItems(data || []);
+    if (!error) {
+      // sortiere nach abfahrt (time) aufsteigend
+      const sorted = (data || []).slice().sort((a, b) =>
+        (a.abfahrt || '').localeCompare(b.abfahrt || '')
+      );
+      setVerbindungen(sorted);
     }
+    setLoadingList(false);
   };
 
-  useEffect(() => {
-    if (sessionChecked) load();
-  }, [sessionChecked]);
-
-  const toast = (t) => {
-    setMsg(t);
-    setTimeout(() => setMsg(null), 2500);
+  // ---------- GTFS Upload ----------
+  const onGtfsChange = (e) => {
+    const f = e.target.files?.[0];
+    if (f) setGtfsFile(f);
   };
 
-  // --- Hinzufügen ---
-  const addOne = async (e) => {
-    e.preventDefault();
-    if (!linie || !abfahrt || !haltestelle || !capacity) {
-      toast('Bitte alle Felder ausfüllen.');
+  const uploadGTFS = async () => {
+    if (!gtfsFile) {
+      setGtfsMessage('Bitte eine GTFS ZIP-Datei auswählen.');
       return;
     }
-    setLoading(true);
+    if (!user) {
+      setGtfsMessage('Nicht autorisiert.');
+      return;
+    }
+    setUploading(true);
+    setGtfsMessage(null);
 
-    // Achtung: Manche Projekte haben die Spalte noch "limit". Wir schreiben beide,
-    // PostgREST ignoriert die nicht existierende Spalte einfach.
+    try {
+      const objectPath = `latest/${Date.now()}_${gtfsFile.name}`;
+
+      // 1) Upload in Storage (Bucket "gtfs")
+      const { error: upErr } = await supabase.storage
+        .from('gtfs')
+        .upload(objectPath, gtfsFile, {
+          cacheControl: '3600',
+          upsert: true,
+          contentType: gtfsFile.type || 'application/zip',
+        });
+      if (upErr) throw upErr;
+
+      // 2) Meta speichern
+      const { error: metaErr } = await supabase
+        .from('gtfs_meta')
+        .insert({
+          filename: objectPath,
+          size_bytes: gtfsFile.size,
+          uploaded_by: user.email,
+        });
+      if (metaErr) throw metaErr;
+
+      setGtfsMessage('✅ GTFS erfolgreich hochgeladen!');
+      setGtfsFile(null);
+      const input = document.getElementById('gtfs-file-input');
+      if (input) input.value = '';
+
+      await fetchLastUpdate();
+    } catch (err) {
+      console.error(err);
+      setGtfsMessage('❌ Upload fehlgeschlagen.');
+    } finally {
+      setUploading(false);
+      setTimeout(() => setGtfsMessage(null), 3000);
+    }
+  };
+
+  // ---------- Manuell hinzufügen ----------
+  const updateForm = (patch) => setForm(prev => ({ ...prev, ...patch }));
+
+  const addVerbindung = async () => {
+    if (!form.linie || !form.abfahrt || !form.haltestelle || !form.limit) {
+      setFormMsg('Bitte alle Felder ausfüllen.');
+      return;
+    }
+    setFormBusy(true);
+    setFormMsg(null);
+
     const payload = {
-      linie,
-      abfahrt,
-      haltestelle,
-      capacity: parseInt(capacity, 10),
-      limit: parseInt(capacity, 10), // nur falls du die Spalte nicht umbenannt hast
+      linie: form.linie.trim(),
+      abfahrt: form.abfahrt,        // "HH:mm"
+      haltestelle: form.haltestelle.trim(),
+      limit: Number(form.limit) || 1,
     };
 
-    const { error } = await supabase.from('verbindungen').insert([payload]);
-
-    setLoading(false);
+    const { error } = await supabase.from('verbindungen').insert(payload);
     if (error) {
       console.error(error);
-      toast('❌ Fehler beim Hinzufügen');
+      setFormMsg('❌ Fehler beim Hinzufügen.');
     } else {
-      toast('✅ Verbindung hinzugefügt');
-      setLinie(''); setAbfahrt(''); setHaltestelle(''); setCapacity('');
-      load();
+      setFormMsg('✅ Verbindung hinzugefügt.');
+      setForm({ linie: '', abfahrt: '', haltestelle: '', limit: 3 });
+      await fetchVerbindungen();
     }
+
+    setFormBusy(false);
+    setTimeout(() => setFormMsg(null), 2500);
   };
 
-  // --- Löschen ---
-  const removeOne = async (id) => {
+  const deleteVerbindung = async (id) => {
     if (!confirm('Diese Verbindung wirklich löschen?')) return;
-
-    const { error } = await supabase
-      .from('verbindungen')
-      .delete()
-      .eq('id', id);
-
+    const { error } = await supabase.from('verbindungen').delete().eq('id', id);
     if (error) {
-      console.error(error);
-      toast('❌ Fehler beim Löschen');
+      alert('Fehler beim Löschen: ' + error.message);
     } else {
-      toast('🗑️ Verbindung gelöscht');
-      // lokal filtern – schneller als reload
-      setItems(prev => prev.filter(x => x.id !== id));
+      await fetchVerbindungen();
     }
   };
 
-  // --- Sichtbarkeit: ohne Admin nur Liste anzeigen, kein Formular ---
+  if (!user) {
+    return (
+      <main className="p-4 max-w-3xl mx-auto">
+        <h1 className="text-2xl font-bold text-emerald-700 mb-6">Admin · Verbindungen</h1>
+        <p className="text-gray-600">Nur für Admin sichtbar.</p>
+      </main>
+    );
+  }
+
   return (
     <main className="p-4 max-w-3xl mx-auto">
-      <h1 className="text-2xl font-bold text-emerald-700 mb-6">Admin: Verbindungen</h1>
+      <h1 className="text-2xl font-bold text-emerald-700 mb-6">Admin · Verbindungen</h1>
 
-      {msg && (
-        <div className="mb-4 rounded bg-emerald-600 text-white px-3 py-2 shadow">
-          {msg}
+      {/* === GTFS Bereich === */}
+      <section className="bg-white rounded-xl shadow p-4 mb-8">
+        <h2 className="text-lg font-semibold mb-2">GTFS-Daten</h2>
+        <p className="text-sm text-gray-600 mb-4">
+          {lastUpdate
+            ? <>Zuletzt aktualisiert: <strong>{new Date(lastUpdate.uploaded_at).toLocaleString()}</strong><br/>
+                Datei: <code className="text-gray-700">{lastUpdate.filename}</code> ({(lastUpdate.size_bytes/1_000_000).toFixed(1)} MB)</>
+            : 'Noch keine GTFS-Daten hochgeladen.'}
+        </p>
+
+        <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
+          <input
+            id="gtfs-file-input"
+            type="file"
+            accept=".zip,.txt"
+            onChange={onGtfsChange}
+            className="block"
+          />
+          <button
+            onClick={uploadGTFS}
+            disabled={!gtfsFile || uploading}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-4 rounded disabled:opacity-50"
+          >
+            {uploading ? 'Lade hoch…' : 'Aktuelle GTFS-Daten hochladen'}
+          </button>
         </div>
-      )}
 
-      {sessionChecked && isAdmin && (
-        <form onSubmit={addOne} className="bg-white rounded-xl shadow p-4 mb-8 space-y-3">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm font-medium mb-1">Linie</label>
-              <input
-                className="w-full border rounded p-2"
-                value={linie}
-                onChange={(e) => setLinie(e.target.value)}
-                placeholder="z.B. U7 / Bus 42"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Abfahrt</label>
-              <input
-                className="w-full border rounded p-2"
-                value={abfahrt}
-                onChange={(e) => setAbfahrt(e.target.value)}
-                placeholder="z.B. 09:42"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Haltestelle</label>
-              <input
-                className="w-full border rounded p-2"
-                value={haltestelle}
-                onChange={(e) => setHaltestelle(e.target.value)}
-                placeholder="z.B. Hauptbahnhof"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Kapazität (Anz. Gruppen)</label>
-              <input
-                type="number"
-                min="1"
-                className="w-full border rounded p-2"
-                value={capacity}
-                onChange={(e) => setCapacity(e.target.value)}
-                placeholder="z.B. 2"
-              />
-            </div>
+        {gtfsMessage && <div className="mt-3 text-sm">{gtfsMessage}</div>}
+
+        {/* Platzhalter für den nächsten Schritt (automatisch aus GTFS erzeugen) */}
+        {/* <div className="mt-6">
+          <h3 className="font-semibold mb-2">Verbindungen automatisch erzeugen</h3>
+          <p className="text-sm text-gray-600 mb-3">
+            (Nächster Schritt) Wähle Datum → lade Fahrten 09–11 Uhr „Am Ochsenwald“ → trage mit Limit=3 ein.
+          </p>
+          <button className="bg-gray-200 text-gray-700 px-4 py-2 rounded cursor-not-allowed">In Arbeit…</button>
+        </div> */}
+      </section>
+
+      {/* === Manuelles Hinzufügen === */}
+      <section className="bg-white rounded-xl shadow p-4 mb-8">
+        <h2 className="text-lg font-semibold mb-4">Verbindung manuell hinzufügen</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm mb-1">Linie</label>
+            <input
+              type="text"
+              value={form.linie}
+              onChange={(e) => updateForm({ linie: e.target.value })}
+              className="w-full border rounded p-2"
+              placeholder="z. B. 207"
+            />
           </div>
-
-          <div className="pt-2">
-            <button
-              type="submit"
-              disabled={loading}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2 rounded disabled:opacity-50"
-            >
-              {loading ? 'Speichere…' : 'Hinzufügen'}
-            </button>
+          <div>
+            <label className="block text-sm mb-1">Abfahrt (Uhrzeit)</label>
+            <input
+              type="time"
+              value={form.abfahrt}
+              onChange={(e) => updateForm({ abfahrt: e.target.value })}
+              className="w-full border rounded p-2"
+            />
           </div>
-        </form>
-      )}
+          <div>
+            <label className="block text-sm mb-1">Haltestelle</label>
+            <input
+              type="text"
+              value={form.haltestelle}
+              onChange={(e) => updateForm({ haltestelle: e.target.value })}
+              className="w-full border rounded p-2"
+              placeholder="Am Ochsenwald"
+            />
+          </div>
+          <div>
+            <label className="block text-sm mb-1">Max. Gruppen (Limit)</label>
+            <input
+              type="number"
+              min={1}
+              value={form.limit}
+              onChange={(e) => updateForm({ limit: e.target.value })}
+              className="w-full border rounded p-2"
+            />
+          </div>
+        </div>
+        <div className="mt-4">
+          <button
+            onClick={addVerbindung}
+            disabled={formBusy}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-4 rounded disabled:opacity-50"
+          >
+            {formBusy ? 'Speichere…' : 'Hinzufügen'}
+          </button>
+          {formMsg && <span className="ml-3 text-sm">{formMsg}</span>}
+        </div>
+      </section>
 
-      {/* Liste */}
-      <div className="bg-white rounded-xl shadow p-4">
-        <h2 className="text-lg font-semibold mb-3">Vorhandene Verbindungen</h2>
-        {items.length === 0 ? (
-          <p className="text-gray-500">Noch keine Verbindungen.</p>
+      {/* === Liste vorhandener Verbindungen === */}
+      <section className="bg-white rounded-xl shadow p-4">
+        <h2 className="text-lg font-semibold mb-4">Vorhandene Verbindungen</h2>
+        {loadingList ? (
+          <p className="text-gray-600">Lade…</p>
+        ) : verbindungen.length === 0 ? (
+          <p className="text-gray-600">Keine Verbindungen vorhanden.</p>
         ) : (
-          <ul className="divide-y">
-            {items.map(v => (
-              <li key={v.id} className="py-3 flex items-center justify-between">
+          <div className="space-y-3">
+            {verbindungen.map(v => (
+              <div key={v.id} className="border rounded p-3 flex justify-between items-center">
                 <div className="text-sm">
-                  <div className="font-semibold">{v.linie}</div>
-                  <div className="text-gray-600">
-                    {v.abfahrt} · {v.haltestelle} · Kapazität:{' '}
-                    <strong>{(v.capacity ?? v.limit) ?? '—'}</strong>
-                  </div>
+                  <div className="font-semibold">{v.linie} – {v.abfahrt}</div>
+                  <div className="text-gray-600">ab {v.haltestelle} · Limit: {v.limit}</div>
                 </div>
-                {isAdmin && (
-                  <button
-                    onClick={() => removeOne(v.id)}
-                    className="text-red-600 hover:underline text-sm"
-                  >
-                    Löschen
-                  </button>
-                )}
-              </li>
+                <button
+                  onClick={() => deleteVerbindung(v.id)}
+                  className="text-red-600 hover:underline"
+                >
+                  Löschen
+                </button>
+              </div>
             ))}
-          </ul>
+          </div>
         )}
-      </div>
+      </section>
     </main>
   );
 }
