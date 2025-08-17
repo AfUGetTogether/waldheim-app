@@ -1,14 +1,13 @@
-// src/app/admin/buchungen/page.js
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useRouter } from 'next/navigation';
 import {
   format,
   startOfWeek,
-  addDays,
   endOfWeek,
+  addDays,
   isWithinInterval,
 } from 'date-fns';
 import de from 'date-fns/locale/de';
@@ -30,21 +29,24 @@ export default function AdminBuchungenPage() {
   const [admin, setAdmin] = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
 
+  const [plaetze, setPlaetze] = useState([]);
+  const [zeitfenster, setZeitfenster] = useState([]);
   const [buchungen, setBuchungen] = useState([]);
+
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
 
-  // --- Wochenlogik: ab Sonntag 12:00 Uhr bereits die nächste Woche ---
+  // Woche: ab Sonntag 12:00 Uhr schon nächste Woche anzeigen
   const { weekStart, weekEnd, showNextWeek } = useMemo(() => {
     const now = new Date();
-    const showNext = now.getDay() === 0 && now.getHours() >= 12; // Sonntag >= 12:00
-    const refDate = showNext ? addDays(now, 1) : now;
-    const ws = startOfWeek(refDate, { weekStartsOn: 1 }); // Montag
-    const we = endOfWeek(ws, { weekStartsOn: 1 });       // Sonntag 23:59
-    return { weekStart: ws, weekEnd: we, showNextWeek: showNext };
-  }, []); // stabil, ändert sich nur beim Reload
+    const next = now.getDay() === 0 && now.getHours() >= 12; // Sonntag ≥12:00
+    const ref = next ? addDays(now, 1) : now;
+    const ws = startOfWeek(ref, { weekStartsOn: 1 });
+    const we = endOfWeek(ws, { weekStartsOn: 1 });
+    return { weekStart: ws, weekEnd: we, showNextWeek: next };
+  }, []);
 
-  // --- 1) Auth-Check (einmalig) ---
+  // 1) Auth-Check
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -62,49 +64,55 @@ export default function AdminBuchungenPage() {
     return () => { cancelled = true; };
   }, [router]);
 
-  // --- 2) Daten für die (stabil berechnete) Woche fetchen ---
+  // 2) Daten laden (ohne verschachtelte Selects)
   useEffect(() => {
     if (!authChecked || !admin) return;
     let cancelled = false;
 
-    const fetchData = async () => {
+    const load = async () => {
       setLoading(true);
-      const { data, error } = await supabase
-        .from('buchungen')
-        .select(`
-          id,
-          user_email,
-          datum,
-          status,
-          von_uhrzeit,
-          bis_uhrzeit,
-          zeitfenster:zeitfenster_id (
-            id,
-            von,
-            bis,
-            plaetze:platz_id ( id, name )
-          )
-        `)
-        .gte('datum', format(weekStart, 'yyyy-MM-dd'))
-        .lte('datum', format(weekEnd, 'yyyy-MM-dd'))
-        .order('datum', { ascending: true });
 
-      if (!cancelled) {
-        if (error) {
-          console.error('Fehler beim Laden:', error.message);
-          setBuchungen([]);
-        } else {
-          setBuchungen(data || []);
-        }
-        setLoading(false);
-      }
+      const [plaetzeRes, zfRes, buchRes] = await Promise.all([
+        supabase.from('plaetze').select('id, name'),
+        supabase.from('zeitfenster').select('id, platz_id, von, bis'),
+        supabase
+          .from('buchungen')
+          .select('id, user_email, datum, status, von_uhrzeit, bis_uhrzeit, zeitfenster_id')
+          .gte('datum', format(weekStart, 'yyyy-MM-dd'))
+          .lte('datum', format(weekEnd, 'yyyy-MM-dd'))
+          .order('datum', { ascending: true }),
+      ]);
+
+      if (cancelled) return;
+
+      if (plaetzeRes.error) console.error('plaetze error:', plaetzeRes.error.message);
+      if (zfRes.error) console.error('zeitfenster error:', zfRes.error.message);
+      if (buchRes.error) console.error('buchungen error:', buchRes.error.message);
+
+      setPlaetze(plaetzeRes.data || []);
+      setZeitfenster(zfRes.data || []);
+      setBuchungen(buchRes.data || []);
+      setLoading(false);
     };
 
-    fetchData();
+    load();
     return () => { cancelled = true; };
   }, [authChecked, admin, weekStart, weekEnd]);
 
-  // aktive Buchungen der Woche pro Gruppe zählen
+  // Maps für schnelle Verknüpfung
+  const platzById = useMemo(() => {
+    const m = new Map();
+    for (const p of plaetze) m.set(p.id, p);
+    return m;
+  }, [plaetze]);
+
+  const zeitfensterById = useMemo(() => {
+    const m = new Map();
+    for (const z of zeitfenster) m.set(z.id, z);
+    return m;
+  }, [zeitfenster]);
+
+  // aktive Buchungen in der Woche pro Gruppe
   const aktiveDieseWocheByEmail = useMemo(() => {
     const map = new Map();
     for (const b of buchungen) {
@@ -132,16 +140,13 @@ export default function AdminBuchungenPage() {
     });
   }, [buchungen, aktiveDieseWocheByEmail]);
 
-  // Tabelle sortiert: Datum, dann Startzeit
   const sichtbareBuchungen = useMemo(() => {
     return (buchungen || [])
       .slice()
       .sort((a, b) => {
         const ad = new Date(a.datum) - new Date(b.datum);
         if (ad !== 0) return ad;
-        return (a.von_uhrzeit || a.zeitfenster?.von || '').localeCompare(
-          b.von_uhrzeit || b.zeitfenster?.von || ''
-        );
+        return (a.von_uhrzeit || '').localeCompare(b.von_uhrzeit || '');
       });
   }, [buchungen]);
 
@@ -164,7 +169,6 @@ export default function AdminBuchungenPage() {
     setTimeout(() => setToast(null), 2000);
   };
 
-  // Während des Auth-Checks nichts rendern → verhindert Flackern
   if (!authChecked) return null;
 
   return (
@@ -180,6 +184,11 @@ export default function AdminBuchungenPage() {
             Hinweis: ab So 12:00 Uhr wird bereits die nächste Woche angezeigt
           </span>
         )}
+      </div>
+
+      {/* Diagnose (kurzfristig hilfreich, kannst du später entfernen) */}
+      <div className="bg-amber-50 border border-amber-200 rounded p-3 text-sm text-amber-800 mb-6">
+        <div>DEBUG: plaetze={plaetze.length} · zeitfenster={zeitfenster.length} · buchungen={buchungen.length}</div>
       </div>
 
       {/* Gruppen-Summary */}
@@ -224,9 +233,10 @@ export default function AdminBuchungenPage() {
               </thead>
               <tbody>
                 {sichtbareBuchungen.map(b => {
-                  const platzName = b.zeitfenster?.plaetze?.name || '—';
-                  const von = b.von_uhrzeit || b.zeitfenster?.von || '';
-                  const bis = b.bis_uhrzeit || b.zeitfenster?.bis || '';
+                  const zf = zeitfensterById.get(b.zeitfenster_id);
+                  const platzName = zf ? (platzById.get(zf.platz_id)?.name || '—') : '—';
+                  const von = b.von_uhrzeit || zf?.von || '';
+                  const bis = b.bis_uhrzeit || zf?.bis || '';
                   return (
                     <tr key={b.id} className="border-t">
                       <td className="p-2">
